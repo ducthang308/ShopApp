@@ -100,3 +100,23 @@ CREATE TABLE order_details(
     total_money FLOAT CHECK(total_money >= 0),
     color VARCHAR(20) DEFAULT ''
 );
+CREATE TABLE `carts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11),
+  `created_at` datetime,
+  `updated_at` datetime,
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+);
+
+CREATE TABLE `cart_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `cart_id` int(11),
+  `product_id` int(11),
+  `quantity` int(11),
+  `created_at` datetime,
+  `updated_at` datetime,
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`product_id`) REFERENCES `product` (`id`),
+  FOREIGN KEY (`cart_id`) REFERENCES `carts` (`id`)
+);
