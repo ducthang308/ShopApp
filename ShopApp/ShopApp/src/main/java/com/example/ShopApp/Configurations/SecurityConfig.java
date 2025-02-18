@@ -28,7 +28,7 @@ public class SecurityConfig {
                     .orElseThrow(()-> new UsernameNotFoundException(
                             "Cannot find with phone number: "+phoneNumber));
     }
-
+    //Mã hóa mật khẩu
     @Bean
     public PasswordEncoder passwordEncoder(){
         return new BCryptPasswordEncoder();

@@ -1,6 +1,8 @@
 package com.example.ShopApp.Controller;
 
 import ch.qos.logback.core.util.StringUtil;
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
 import com.example.ShopApp.Components.LocalizationUtils;
 import com.example.ShopApp.DTO.CategoryDTO;
 import com.example.ShopApp.DTO.ProductDTO;
@@ -16,6 +18,7 @@ import com.github.javafaker.Faker;
 import jakarta.validation.Path;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.UrlResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -23,6 +26,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -40,8 +44,10 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("${api.prefix}/products")
 @RequiredArgsConstructor
+@Slf4j
 public class ProductController {
 
+    private final Cloudinary cloudinary;
     private final ProductService productService;
     private final LocalizationUtils localizationUtils;
 
@@ -117,79 +123,38 @@ public class ProductController {
         }
     }
 
-    @PostMapping(value = "uploads/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadImages(@ModelAttribute("files") List<MultipartFile> files,
+    @PostMapping(value = "uploads/{id}", consumes = "multipart/form-data")
+    @PreAuthorize("hasRole('ROLE_Admin')")
+    public ResponseEntity<?> uploadImages(@RequestParam("files") List<MultipartFile> files,
                                           @PathVariable("id") Long productId) {
+        log.info("Product ID: {}", productId);
+        log.info("Number of files received: {}", files != null ? files.size() : 0);
+        if (files == null || files.isEmpty()) {
+            return ResponseEntity.badRequest().body("No files provided for upload.");
+        }
         try {
             Product existingProduct = productService.getProductById(productId);
-            files = files == null ? new ArrayList<>() : files;
-            if (files.size() > ProductImage.MAXIMUM_IMAGES_PER_PRODUCT) {
-                return ResponseEntity.badRequest().body(localizationUtils.getLocalizedMessage(MessageKeys.UPLOAD_IMAGES_MAX_5));
-            }
             List<ProductImage> productImages = new ArrayList<>();
             for (MultipartFile file : files) {
-                if (file.getSize() == 0) {
+                if (file.isEmpty()) {
                     continue;
                 }
-                // Kiểm tra kích thước file và định dạng đường dẫn
-                if (file.getSize() > 10 * 1024 * 1024) {
-                    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                            .body(localizationUtils.getLocalizedMessage(MessageKeys.UPLOAD_IMAGES_FILE_LARGE));
-                }
-                String contentType = file.getContentType();
-                if (contentType == null || !contentType.startsWith("image/")) {
-                    return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-                            .body(localizationUtils.getLocalizedMessage(MessageKeys.UPLOAD_IMAGES_FILE_MUST_BE_IMAGE));
-                }
-                // Lưu file và cập nhật thumbnail trong DTO
-                String filename = storeFile(file);
-                // Lưu vào đối tượng product trong DB
+                Map<String, Object> uploadResult = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.emptyMap());
+                String imageUrl = uploadResult.get("url").toString();
+
                 ProductImage productImage = productService.creatProductImage(
                         existingProduct.getId(),
-                        ProductImageDTO.builder()
-                                .imageUrl(filename)
-                                .build()
+                        ProductImageDTO.builder().imageUrl(imageUrl).build()
                 );
                 productImages.add(productImage);
             }
             return ResponseEntity.ok(productImages);
+        } catch (IOException e) {
+            log.error("File processing error", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid file format.");
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
-
-    private String storeFile(MultipartFile file) throws IOException {
-        if (!isImageFile(file) || file.getOriginalFilename() == null) {
-            throw new IOException("Invalid image file format");
-        }
-        String filename = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        // Thêm UUID vào trước tên file để đảm bảo tên file là duy nhất
-        String uniqueFilename = UUID.randomUUID().toString() + "_" + filename;
-        // Đường dẫn đến thư mục mà bạn muốn lưu file
-        java.nio.file.Path uploadDir = Paths.get("uploads");
-        // Kiểm tra và tạo thư mục nếu chưa tồn tại
-        if (!Files.exists(uploadDir)) {
-            Files.createDirectories(uploadDir);
-        }
-        // Đường dẫn đầy đủ đến file
-        java.nio.file.Path destination = Paths.get(uploadDir.toString(), uniqueFilename);
-        // Sao chép file vào thư mục đích
-        Files.copy(file.getInputStream(), destination, StandardCopyOption.REPLACE_EXISTING);
-        return uniqueFilename;
-    }
-
-    private boolean isImageFile(MultipartFile file) {
-        String contentType = file.getContentType();
-        return contentType != null && contentType.startsWith("image/");
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateProduct(@PathVariable Long id, @RequestBody ProductDTO productDTO){
-        try {
-            Product updateProduct = productService.updateProduct(id, productDTO);
-            return ResponseEntity.ok(updateProduct);
-        }catch (Exception e){
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+            log.error("Unexpected error", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Unexpected error occurred.");
         }
     }
     @DeleteMapping("/{id}")

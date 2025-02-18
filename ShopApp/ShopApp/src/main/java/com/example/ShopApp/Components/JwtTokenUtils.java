@@ -24,6 +24,10 @@ public class JwtTokenUtils {
     @Value("${jwt.secretKey}")
     private String secretKey;
 
+    //HS256 (HMAC with SHA-256) là một thuật toán
+    // ký số thường được sử dụng để tạo chữ ký số cho JSON Web Tokens (JWTs).
+    // Là một thuật toán nhanh hiệu quả, xử lí nhiều token ngắn hạn
+    //Private claims
     public String generateToken(com.example.ShopApp.Models.User user) throws Exception {
         Map<String, Object> claims = new HashMap<>();
         claims.put("phone", user.getPhone());
@@ -60,7 +64,7 @@ public class JwtTokenUtils {
                 .parseClaimsJws(token)
                 .getBody();
     }
-
+    //trích xuất một giá trị cụ thể từ các claims trong JWT
     public <T> T extractClaim(String token, Function<Claims, T> claimResolver){
         final Claims claims = this.extractAllClaims(token);
         return claimResolver.apply(claims);
